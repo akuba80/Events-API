@@ -25,4 +25,15 @@ jobs:
         run: | 
           docker run -d -p 5000:5000 --name events-api-test events-api:latest
           sleep 5
-          curl http://localhost:5000/api/health
+          curl http://localhost:5000/api/health || exit 1
+      - name: Set Up Python
+        uses: actions/setup-python@V5
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+        
+
+        name: Run Tests
+        run: |
+          pytest -v
