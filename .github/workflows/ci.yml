@@ -7,8 +7,9 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  test-and-deploy:
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -39,3 +40,28 @@ jobs:
         run: |
           docker stop events-api-container
           docker rm events-api-container
+
+      - name: Docker login
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker image (amd64 for Render)
+        if: github.event_name == 'push'
+        run: docker build --platform linux/amd64 -t ${{ secrets.DOCKERHUB_USERNAME }}/events-api:latest .
+
+      - name: Push to Docker Hub
+        if: github.event_name == 'push'
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/events-api:latest
+
+      - name: Trigger Render deployment
+        if: github.event_name == 'push'
+        run: curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK }}
+
+      - name: Verify deployment (health check)
+        if: github.event_name == 'push'
+        run: |
+          sleep 30
+          curl --fail ${{ secrets.RENDER_BASE_URL }}/api/health
