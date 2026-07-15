@@ -6,10 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  test-and-deploy:
+  test:
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -41,27 +43,65 @@ jobs:
           docker stop events-api-container
           docker rm events-api-container
 
+  deploy:
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      # Optional repository variable to tune Render startup wait time without editing the workflow.
+      RENDER_HEALTHCHECK_DELAY_SECONDS: ${{ vars.RENDER_HEALTHCHECK_DELAY_SECONDS || '30' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check deployment configuration
+        id: deploy-config
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          RENDER_BASE_URL: ${{ secrets.RENDER_BASE_URL }}
+        run: |
+          secrets_ready=true
+          for secret_name in DOCKERHUB_USERNAME DOCKERHUB_TOKEN RENDER_DEPLOY_HOOK RENDER_BASE_URL; do
+            if [ -z "${!secret_name}" ]; then
+              echo "::warning::${secret_name} is not configured; skipping deployment."
+              secrets_ready=false
+              break
+            fi
+          done
+
+          echo "ready=$secrets_ready" >> "$GITHUB_OUTPUT"
+
       - name: Docker login
-        if: github.event_name == 'push'
+        id: docker-login
+        if: steps.deploy-config.outputs.ready == 'true'
+        continue-on-error: true
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Warn when Docker login fails
+        if: steps.deploy-config.outputs.ready == 'true' && steps.docker-login.outcome != 'success'
+        run: |
+          echo "::warning::Docker Hub login failed; skipping deployment. Verify DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets."
+
       - name: Build Docker image (amd64 for Render)
-        if: github.event_name == 'push'
+        if: steps.deploy-config.outputs.ready == 'true' && steps.docker-login.outcome == 'success'
         run: docker build --platform linux/amd64 -t ${{ secrets.DOCKERHUB_USERNAME }}/events-api:latest .
 
       - name: Push to Docker Hub
-        if: github.event_name == 'push'
+        if: steps.deploy-config.outputs.ready == 'true' && steps.docker-login.outcome == 'success'
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/events-api:latest
 
       - name: Trigger Render deployment
-        if: github.event_name == 'push'
+        if: steps.deploy-config.outputs.ready == 'true' && steps.docker-login.outcome == 'success'
         run: curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK }}
 
       - name: Verify deployment (health check)
-        if: github.event_name == 'push'
+        if: steps.deploy-config.outputs.ready == 'true' && steps.docker-login.outcome == 'success'
         run: |
-          sleep 30
+          sleep "$RENDER_HEALTHCHECK_DELAY_SECONDS"
           curl --fail ${{ secrets.RENDER_BASE_URL }}/api/health
