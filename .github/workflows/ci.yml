@@ -62,15 +62,15 @@ jobs:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
           RENDER_BASE_URL: ${{ secrets.RENDER_BASE_URL }}
         run: |
-          ready=true
+          secrets_ready=true
           for secret_name in DOCKERHUB_USERNAME DOCKERHUB_TOKEN RENDER_DEPLOY_HOOK RENDER_BASE_URL; do
             if [ -z "${!secret_name}" ]; then
               echo "::warning::${secret_name} is not configured; skipping deployment."
-              ready=false
+              secrets_ready=false
             fi
           done
 
-          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          echo "ready=$secrets_ready" >> "$GITHUB_OUTPUT"
 
       - name: Docker login
         id: docker-login
@@ -88,6 +88,10 @@ jobs:
           case "${{ steps.docker-login.outcome }}" in
             success)
               echo "ready=true" >> "$GITHUB_OUTPUT"
+              ;;
+            skipped)
+              echo "::warning::Docker Hub login was skipped; skipping deployment."
+              echo "ready=false" >> "$GITHUB_OUTPUT"
               ;;
             *)
               echo "::warning::Docker Hub login failed; skipping deployment. Verify DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets."
