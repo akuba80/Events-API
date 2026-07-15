@@ -49,6 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
+      # Optional repository variable to tune Render startup wait time without editing the workflow.
       RENDER_HEALTHCHECK_DELAY_SECONDS: ${{ vars.RENDER_HEALTHCHECK_DELAY_SECONDS || '30' }}
     steps:
       - name: Checkout code
@@ -67,6 +68,7 @@ jobs:
             if [ -z "${!secret_name}" ]; then
               echo "::warning::${secret_name} is not configured; skipping deployment."
               secrets_ready=false
+              break
             fi
           done
 
