@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t events-api:latest .
+
+      - name: Run container
+        run: docker run -d -p 5001:5001 --name events-api-container events-api:latest
+
+      - name: Wait for API to be ready
+        run: sleep 5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v
+
+      - name: Stop and remove container
+        run: |
+          docker stop events-api-container
+          docker rm events-api-container
