@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
-      RENDER_HEALTHCHECK_DELAY_SECONDS: 30
+      RENDER_HEALTHCHECK_DELAY_SECONDS: ${{ vars.RENDER_HEALTHCHECK_DELAY_SECONDS || '30' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -81,38 +81,25 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Confirm Docker login
-        id: deploy-ready
-        if: steps.deploy-config.outputs.ready == 'true'
+      - name: Warn when Docker login fails
+        if: steps.deploy-config.outputs.ready == 'true' && steps.docker-login.outcome != 'success'
         run: |
-          case "${{ steps.docker-login.outcome }}" in
-            success)
-              echo "ready=true" >> "$GITHUB_OUTPUT"
-              ;;
-            skipped)
-              echo "::warning::Docker Hub login was skipped; skipping deployment."
-              echo "ready=false" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "::warning::Docker Hub login failed; skipping deployment. Verify DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets."
-              echo "ready=false" >> "$GITHUB_OUTPUT"
-              ;;
-          esac
+          echo "::warning::Docker Hub login failed; skipping deployment. Verify DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets."
 
       - name: Build Docker image (amd64 for Render)
-        if: steps.deploy-ready.outputs.ready == 'true'
+        if: steps.deploy-config.outputs.ready == 'true' && steps.docker-login.outcome == 'success'
         run: docker build --platform linux/amd64 -t ${{ secrets.DOCKERHUB_USERNAME }}/events-api:latest .
 
       - name: Push to Docker Hub
-        if: steps.deploy-ready.outputs.ready == 'true'
+        if: steps.deploy-config.outputs.ready == 'true' && steps.docker-login.outcome == 'success'
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/events-api:latest
 
       - name: Trigger Render deployment
-        if: steps.deploy-ready.outputs.ready == 'true'
+        if: steps.deploy-config.outputs.ready == 'true' && steps.docker-login.outcome == 'success'
         run: curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK }}
 
       - name: Verify deployment (health check)
-        if: steps.deploy-ready.outputs.ready == 'true'
+        if: steps.deploy-config.outputs.ready == 'true' && steps.docker-login.outcome == 'success'
         run: |
           sleep "$RENDER_HEALTHCHECK_DELAY_SECONDS"
           curl --fail ${{ secrets.RENDER_BASE_URL }}/api/health
